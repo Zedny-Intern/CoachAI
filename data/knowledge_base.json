@@ -1,0 +1,32 @@
+[
+  {
+    "topic": "Pythagorean Theorem",
+    "content": "The Pythagorean theorem states that in a right triangle, the square of the hypotenuse (c) equals the sum of squares of the other two sides: a² + b² = c²",
+    "subject": "Mathematics",
+    "level": "Middle School"
+  },
+  {
+    "topic": "Photosynthesis",
+    "content": "Photosynthesis is the process by which plants convert light energy into chemical energy. The equation is: 6CO₂ + 6H₂O + light → C₆H₁₂O₆ + 6O₂",
+    "subject": "Biology",
+    "level": "High School"
+  },
+  {
+    "topic": "Newton's Second Law",
+    "content": "Newton's second law states that Force equals mass times acceleration: F = ma. This fundamental principle describes the relationship between force, mass, and motion.",
+    "subject": "Physics",
+    "level": "High School"
+  },
+  {
+    "topic": "Quadratic Formula",
+    "content": "The quadratic formula solves equations of form ax² + bx + c = 0. The solution is x = (-b ± √(b²-4ac)) / 2a",
+    "subject": "Mathematics",
+    "level": "High School"
+  },
+  {
+    "topic": "Cell Structure",
+    "content": "Eukaryotic cells contain a nucleus, mitochondria, endoplasmic reticulum, and other organelles. The nucleus contains DNA and controls cell activities.",
+    "subject": "Biology",
+    "level": "High School"
+  }
+]
