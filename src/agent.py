@@ -23,40 +23,22 @@ class LearningCoachAgent:
         return self.model_handler.load_model()
 
     def process_query(self, text_query=None, image=None, image_type="General Text"):
-        """Process query with enhanced image processing"""
-        ocr_text = ""
+        """Process query with native vision-language understanding"""
         if image is not None:
-            # Select processing mode based on image type
-            processing_mode = "general"
-            if image_type in ["Math Equations", "Handwritten Notes"]:
-                processing_mode = "math"
-
             with st.spinner("🔍 Analyzing image..."):
-                ocr_text = self.image_processor.extract_text(image, mode=processing_mode)
-
-            if ocr_text:
-                # Clean and display OCR text
-                clean_ocr = ImageProcessor._post_process_physics_text(ocr_text)
-                display_text = clean_ocr[:300] + "..." if len(clean_ocr) > 300 else clean_ocr
-                st.info(f"📝 Extracted text: {display_text}")
-
-                # Show processing mode and detected concepts
-                mode_msg = "🔢 Math-enhanced OCR" if processing_mode == "math" else "📄 Standard OCR"
-                if "🔍 Detected physics concepts:" in clean_ocr:
-                    concepts = clean_ocr.split("🔍 Detected physics concepts:")[1].strip()
-                    st.success(f"🎯 Detected physics concepts: {concepts}")
-                st.caption(f"Processing mode: {mode_msg}")
-            else:
-                st.warning("⚠️ No text detected in image. The AI will analyze the visual content directly.")
+                if image_type == "Math Equations":
+                    st.success("🔢 Math content detected - enhanced mathematical analysis enabled")
+                elif image_type == "Diagram/Chart":
+                    st.success("📊 Diagram/chart detected - visual analysis optimized")
+                elif image_type == "Handwritten Notes":
+                    st.success("✍️ Handwritten content detected - handwriting recognition enabled")
 
         combined_query = text_query or ""
-        if ocr_text:
-            combined_query = f"{combined_query} {ocr_text}".strip()
 
         if not combined_query and image is None:
             return None, None, None
 
-        # If we have an image but no text, create a better vision-only query
+        # For vision-only queries, create a descriptive query based on image type
         if not combined_query and image is not None:
             if image_type == "Math Equations":
                 combined_query = "This image contains a mathematics or physics problem with equations and formulas. Carefully analyze the mathematical symbols, variables, and relationships shown. Explain the physics or mathematical concepts, solve any equations visible, and provide step-by-step reasoning about Newton's laws, forces, motion, or other physics principles shown in the image."
@@ -73,17 +55,13 @@ class LearningCoachAgent:
                 top_k=self.config.TOP_K
             )
 
-            # Enhanced physics boosting for handwritten content
-            has_physics_content = (
-                image_type in ["Math Equations", "Handwritten Notes"] or
-                (ocr_text and any(term in ocr_text.lower() for term in
-                    ['newton', 'force', 'mass', 'acceleration', 'velocity', 'gravity', 'physics', 'law', 'inertia', 'energy', 'work', 'power']))
-            )
+            # Enhanced physics boosting for math and handwritten content
+            has_physics_content = image_type in ["Math Equations", "Handwritten Notes"]
 
             needs_physics_boost = (
                 len(relevant_lessons) < 2 and has_physics_content
             ) or (
-                # Boost if OCR contained physics concepts but top results aren't physics
+                # Boost if content appears physics-related but top results aren't physics
                 has_physics_content and len(relevant_lessons) > 0 and
                 not any('physics' in lesson['subject'].lower() or
                        any(physics_term in lesson['topic'].lower() for physics_term in
@@ -151,10 +129,10 @@ class LearningCoachAgent:
                     deduplicated.sort(key=lambda x: x['similarity'], reverse=True)
                     relevant_lessons = deduplicated[:self.config.TOP_K]
 
-        return relevant_lessons, combined_query, ocr_text
+        return relevant_lessons, combined_query, None
 
-    def generate_explanation(self, query, relevant_lessons, image=None, ocr_text=None):
-        """Generate explanation"""
+    def generate_explanation(self, query, relevant_lessons, image=None):
+        """Generate explanation using Qwen3-VL native vision capabilities"""
         context = "\n\n".join([
             f"**{l['topic']}**:\n{l['content']}"
             for l in relevant_lessons
@@ -169,12 +147,7 @@ class LearningCoachAgent:
             image_type = getattr(st.session_state, 'image_type', 'General Text')
             user_prompt += f"""Image Analysis Request: {query}\n\n"""
             user_prompt += f"""Image Content Type: {image_type}\n\n"""
-
-            if ocr_text:
-                user_prompt += f"""OCR Extracted Text: "{ocr_text}"\n\n"""
-                user_prompt += """Please analyze both the extracted text and the visual content of the image to provide a comprehensive explanation.\n\n"""
-            else:
-                user_prompt += """Note: OCR could not extract text from this image. Please analyze the visual content directly and explain what you see in the image.\n\n"""
+            user_prompt += """Please analyze the visual content of the image directly and provide a comprehensive explanation of what you see.\n\n"""
 
             if image_type == "Math Equations":
                 user_prompt += """Focus on mathematical symbols, equations, formulas, and problem-solving steps visible in the image.\n\n"""

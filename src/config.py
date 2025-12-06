@@ -15,7 +15,18 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 class Config:
     """Configuration settings"""
-    device = 'cpu'
+    # Device settings: 'auto', 'cuda', or 'cpu'
+    # 'auto' = automatically detect GPU, fallback to CPU
+    # 'cuda' = force GPU (will fallback to CPU if not available)
+    # 'cpu' = force CPU only
+    device = 'auto'  # Change to 'cuda' or 'cpu' to force specific device
+
+    # Quantization settings to reduce memory usage
+    # 'none' = full precision (float16/float32)
+    # '4bit' = 4-bit quantization (reduces VRAM by ~75%)
+    # '8bit' = 8-bit quantization (reduces VRAM by ~50%)
+    quantization = '4bit'  # Recommended for GPUs with <24GB VRAM
+
     # Model path - adjust this to your model location
     MODEL_PATH = str(SRC_DIR / "Qwen3-VL-2B-Instruct")  # Use non-FP8 version
     MODEL_NAME = "Qwen3-VL-2B-Instruct"

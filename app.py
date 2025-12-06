@@ -3,8 +3,7 @@ Multimodal Learning Coach - Streamlit Application
 Run with: streamlit run app.py
 """
 import os
-# Force TensorFlow to use CPU only before any other imports
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# Reduce TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import streamlit as st
@@ -88,7 +87,7 @@ def main():
             uploaded_file = st.file_uploader(
                 "Upload image (PNG, JPG, JPEG)",
                 type=['png', 'jpg', 'jpeg'],
-                help="Upload images of math problems, diagrams, or text for analysis"
+                help="Upload images for Qwen3-VL analysis - supports math, diagrams, and handwritten content"
             )
 
             if uploaded_file:
@@ -110,10 +109,10 @@ def main():
 
                     # Show processing hints based on type
                     hints = {
-                        "General Text": "📄 Text extraction optimized for printed documents",
-                        "Math Equations": "🔢 Enhanced processing for mathematical symbols and formulas",
-                        "Diagram/Chart": "📊 Visual understanding optimized for diagrams and charts",
-                        "Handwritten Notes": "✍️ OCR tuned for handwritten text recognition"
+                        "General Text": "📄 Optimized for general document analysis and text understanding",
+                        "Math Equations": "🔢 Enhanced mathematical symbol and equation recognition",
+                        "Diagram/Chart": "📊 Advanced visual analysis for diagrams and data charts",
+                        "Handwritten Notes": "✍️ Specialized recognition for handwritten content"
                     }
                     st.info(f"ℹ️ {hints[image_type]}")
 
@@ -143,7 +142,7 @@ def main():
                     with st.spinner("Analyzing..."):
                         image = Image.open(uploaded_file) if uploaded_file else None
                         image_type = getattr(st.session_state, 'image_type', 'General Text')
-                        relevant, query, ocr = agent.process_query(text_query, image, image_type)
+                        relevant, query, _ = agent.process_query(text_query, image, image_type)
 
                         if st.session_state.stop_requested:
                             st.warning("❌ Operation cancelled by user")
@@ -164,7 +163,7 @@ def main():
                                 st.markdown(f"**{l['topic']}** - {l['similarity']:.2%}\n\n{l['content']}")
 
                         with st.spinner("Generating..."):
-                            explanation = agent.generate_explanation(query, relevant, image, ocr)
+                            explanation = agent.generate_explanation(query, relevant, image)
                             if st.session_state.stop_requested:
                                 st.warning("❌ Explanation generation cancelled")
                             else:
