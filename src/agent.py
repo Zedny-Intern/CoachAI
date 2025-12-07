@@ -192,7 +192,7 @@ Question: {question}
 Answer: {student_answer}
 Key Concept: {correct_concept}
 
-Provide constructive feedback."""
+"""
 
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
         return self.model_handler.generate(messages, max_new_tokens=512)
