@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 
 
-from coachai.clients.supabase_client import SupabaseClient
-from coachai.clients.postgres_client import PostgresClient
-from coachai.clients.cohere_client import CohereClient
+from coachai.client.supabase_client import SupabaseClient
+from coachai.client.postgres_client import PostgresClient
+from coachai.client.cohere_client import CohereClient
 from coachai.core.config import Config
 
 
@@ -41,6 +41,9 @@ class KnowledgeRepository:
         except Exception:
             pass
 
+    def _vector_literal(self, vector: List[float]) -> str:
+        return '[' + ','.join(f'{float(x):.8f}' for x in vector) + ']'
+
     def set_user_context(self, user_id: Optional[str], access_token: Optional[str] = None, refresh_token: Optional[str] = None) -> None:
         """Configure repository to operate under a signed-in user (RLS)."""
         self._user_id = str(user_id) if user_id else None
@@ -50,10 +53,18 @@ class KnowledgeRepository:
         else:
             self._supabase_user = None
 
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    def embed_texts(self, texts: List[str], input_type: str = 'search_document') -> List[List[float]]:
         if not self._cohere or not self._cohere.is_available():
+            diag = ''
+            try:
+                if self._cohere is not None and hasattr(self._cohere, 'diagnostics'):
+                    diag = str(self._cohere.diagnostics() or '')
+            except Exception:
+                diag = ''
+            if diag:
+                raise RuntimeError(f'Cohere embeddings not available: {diag}')
             raise RuntimeError('Cohere embeddings not available. Ensure `cohere` is installed and COHERE_API_KEY is set.')
-        return self._cohere.embed(texts)
+        return self._cohere.embed(texts, input_type=input_type)
 
     def _get_supabase(self) -> Optional[SupabaseClient]:
         # Prefer user-scoped client if available.
@@ -107,16 +118,11 @@ class KnowledgeRepository:
         if pg:
             rows: List[Dict[str, Any]] = []
             try:
-                emb = self.embed_texts([query])[0]
+                emb = self.embed_texts([query], input_type='search_query')[0]
                 rows = pg.vector_search(emb, source_table='lessons', top_k=top_k)
             except Exception:
                 self._log('search: pgvector path failed (embed/vector_search threw)')
                 rows = []
-
-            if not rows:
-                # Fallback to in-memory similarity if vector search returns no rows.
-                self._log('search: pgvector returned 0 rows, falling back to in-memory similarity')
-                pg = None
 
             sup = self._get_supabase()
             results = []
@@ -145,7 +151,32 @@ class KnowledgeRepository:
                         lesson_copy['similarity'] = None
                     results.append(lesson_copy)
 
-            return results
+            if results:
+                return results
+
+            self._log('search: pgvector returned 0 results, attempting Supabase RPC fallback')
+
+        # RPC vector search (Supabase) fallback when direct Postgres is not reachable.
+        try:
+            emb = self.embed_texts([query], input_type='search_query')[0]
+            sup = self._get_supabase()
+            if sup:
+                res = sup.rpc('match_lessons', {'query_embedding': self._vector_literal(emb), 'match_count': int(top_k)})
+                rows = getattr(res, 'data', None) if res is not None else None
+                if rows:
+                    out: List[Dict[str, Any]] = []
+                    for r in rows:
+                        item = dict(r)
+                        dist = item.get('distance')
+                        item['distance'] = dist
+                        try:
+                            item['similarity'] = 1.0 / (1.0 + float(dist))
+                        except Exception:
+                            item['similarity'] = None
+                        out.append(item)
+                    return out
+        except Exception as e:
+            self._log(f'search: supabase rpc match_lessons failed: {repr(e)}')
 
         if not self.lessons:
             self.load()
@@ -155,8 +186,8 @@ class KnowledgeRepository:
             return []
 
         try:
-            embeddings = self.embed_texts(texts)
-            query_emb = self.embed_texts([query])[0]
+            embeddings = self.embed_texts(texts, input_type='search_document')
+            query_emb = self.embed_texts([query], input_type='search_query')[0]
         except Exception:
             return []
 
@@ -203,7 +234,7 @@ class KnowledgeRepository:
 
                 # Cohere-only embeddings: if embedding fails, treat as failure so RAG stays correct.
                 try:
-                    emb = self.embed_texts([content])[0]
+                    emb = self.embed_texts([content], input_type='search_document')[0]
                     metadata = {'topic': topic, 'subject': subject, 'owner_id': owner_id}
                     if new_id:
                         eid = self.add_embedding_for_lesson(new_id, emb, metadata)
@@ -217,8 +248,8 @@ class KnowledgeRepository:
                             except Exception as e:
                                 self._log(f'add: cleanup delete failed: {repr(e)} lesson_id={new_id}')
                             return None
-                except Exception:
-                    self._log(f'add: embedding failed for lesson_id={new_id} (check COHERE_API_KEY/COHERE_MODEL/SUPABASE_DB_URL)')
+                except Exception as e:
+                    self._log(f'add: embedding failed for lesson_id={new_id}: {repr(e)}')
                     try:
                         svc = self._get_supabase_service()
                         if svc and new_id:
@@ -255,15 +286,67 @@ class KnowledgeRepository:
 
     def add_embedding_for_lesson(self, lesson_id: str, embedding: List[float], metadata: Optional[Dict[str, Any]] = None) -> Optional[str]:
         pg = self._get_postgres()
-        if not pg:
+        if pg:
+            try:
+                eid = pg.insert_embedding('lessons', lesson_id, embedding, metadata)
+                if eid:
+                    return eid
+            except Exception as e:
+                self._log(f'add_embedding_for_lesson: postgres insert failed: {repr(e)} lesson_id={lesson_id}')
+
+        # Fallback: insert via Supabase REST using service role.
+        svc = self._get_supabase_service()
+        if not svc:
             return None
-        return pg.insert_embedding('lessons', lesson_id, embedding, metadata)
+        try:
+            rec = {
+                'source_table': 'lessons',
+                'source_id': lesson_id,
+                'embedding': self._vector_literal(embedding),
+                'metadata': metadata or {},
+                'lesson_id': lesson_id,
+            }
+            res = svc.table_insert('embeddings', rec)
+            if res and getattr(res, 'data', None):
+                return res.data[0].get('id')
+        except Exception as e:
+            self._log(f'add_embedding_for_lesson: supabase insert failed: {repr(e)} lesson_id={lesson_id}')
+        return None
 
     def add_embedding_for_source(self, source_table: str, source_id: str, embedding: List[float], metadata: Optional[Dict[str, Any]] = None) -> Optional[str]:
         pg = self._get_postgres()
-        if not pg:
+        if pg:
+            try:
+                eid = pg.insert_embedding(source_table, source_id, embedding, metadata)
+                if eid:
+                    return eid
+            except Exception as e:
+                self._log(f'add_embedding_for_source: postgres insert failed: {repr(e)} source_table={source_table} source_id={source_id}')
+
+        svc = self._get_supabase_service()
+        if not svc:
             return None
-        return pg.insert_embedding(source_table, source_id, embedding, metadata)
+        try:
+            rec: Dict[str, Any] = {
+                'source_table': source_table,
+                'source_id': source_id,
+                'embedding': self._vector_literal(embedding),
+                'metadata': metadata or {},
+            }
+            # Populate optional FK helpers when applicable
+            if source_table == 'lessons':
+                rec['lesson_id'] = source_id
+            elif source_table == 'user_queries':
+                rec['query_id'] = source_id
+            elif source_table == 'generated_questions':
+                rec['generated_question_id'] = source_id
+
+            res = svc.table_insert('embeddings', rec)
+            if res and getattr(res, 'data', None):
+                return res.data[0].get('id')
+        except Exception as e:
+            self._log(f'add_embedding_for_source: supabase insert failed: {repr(e)} source_table={source_table} source_id={source_id}')
+        return None
 
     def upload_attachment(self, owner_id: str, bucket: str, path: str, file_bytes: bytes, content_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
         # Enforce per-user buckets.

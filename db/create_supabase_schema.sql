@@ -73,6 +73,39 @@ CREATE TABLE IF NOT EXISTS public.embeddings (
 -- Index for nearest-neighbor search
 CREATE INDEX IF NOT EXISTS embeddings_embedding_idx ON public.embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
+-- RPC: vector search lessons via embeddings table
+-- This enables RAG retrieval without requiring direct Postgres connectivity from the app.
+CREATE OR REPLACE FUNCTION public.match_lessons(
+  query_embedding vector(384),
+  match_count int DEFAULT 5
+)
+RETURNS TABLE (
+  id uuid,
+  owner_id uuid,
+  title text,
+  topic text,
+  subject text,
+  level text,
+  content text,
+  visibility text,
+  created_at timestamptz,
+  distance double precision
+)
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT l.id, l.owner_id, l.title, l.topic, l.subject, l.level, l.content, l.visibility, l.created_at,
+         (e.embedding <=> query_embedding) AS distance
+  FROM public.embeddings e
+  JOIN public.lessons l ON l.id = e.source_id
+  WHERE e.source_table = 'lessons'
+  ORDER BY e.embedding <=> query_embedding
+  LIMIT match_count;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.match_lessons(vector(384), int) TO anon;
+GRANT EXECUTE ON FUNCTION public.match_lessons(vector(384), int) TO authenticated;
+
 -- Add relational columns and foreign keys to connect tables where appropriate.
 -- Use idempotent ALTER statements (ADD COLUMN IF NOT EXISTS, DROP CONSTRAINT IF EXISTS).
 
@@ -122,23 +155,23 @@ ALTER TABLE IF EXISTS public.lessons ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS lessons_owner_select ON public.lessons;
 CREATE POLICY lessons_owner_select ON public.lessons
   FOR SELECT
-  USING (owner_id::text = auth.uid());
+  USING (owner_id::text = cast(auth.uid() as text));
 
 DROP POLICY IF EXISTS lessons_owner_insert ON public.lessons;
 CREATE POLICY lessons_owner_insert ON public.lessons
   FOR INSERT
-  WITH CHECK (owner_id::text = auth.uid());
+  WITH CHECK (owner_id::text = cast(auth.uid() as text));
 
 DROP POLICY IF EXISTS lessons_owner_update ON public.lessons;
 CREATE POLICY lessons_owner_update ON public.lessons
   FOR UPDATE
-  USING (owner_id::text = auth.uid())
-  WITH CHECK (owner_id::text = auth.uid());
+  USING (owner_id::text = cast(auth.uid() as text))
+  WITH CHECK (owner_id::text = cast(auth.uid() as text));
 
 DROP POLICY IF EXISTS lessons_owner_delete ON public.lessons;
 CREATE POLICY lessons_owner_delete ON public.lessons
   FOR DELETE
-  USING (owner_id::text = auth.uid());
+  USING (owner_id::text = cast(auth.uid() as text));
 
 -- Note: The `service_role` key bypasses RLS. For front-end clients use anon key
 -- and rely on policies, or call server-side endpoints that use the service role key.

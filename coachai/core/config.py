@@ -68,7 +68,7 @@ class Config:
 
     # Cohere embeddings
     COHERE_API_KEY = os.environ.get('COHERE_API_KEY', '')
-    COHERE_MODEL = os.environ.get('COHERE_MODEL', 'embed-english-light-v3.0')
+    COHERE_MODEL = os.environ.get('COHERE_MODEL', 'embed-multilingual-light-v3.0')
 
     # Use server-side protected RAG endpoints
     USE_SERVER_SIDE_RAG = os.environ.get('USE_SERVER_SIDE_RAG', 'false').lower() in ('1', 'true', 'yes')

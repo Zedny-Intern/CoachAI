@@ -172,3 +172,9 @@ class SupabaseClient:
 
     def table_delete(self, table: str, eq_field: str, eq_value: Any) -> Dict[str, Any]:
         return self._client.table(table).delete().eq(eq_field, eq_value).execute()
+
+    def rpc(self, fn: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        call = self._client.rpc(fn, params or {})
+        if hasattr(call, 'execute'):
+            return call.execute()
+        return call

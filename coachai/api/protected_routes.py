@@ -10,8 +10,8 @@ from typing import Optional
 from api.schemas import ProtectedLesson, EmbeddingIn, GeneratedQuestionIn, AnswerIn
 
 from coachai.repositories.knowledge_repository import KnowledgeRepository
-from coachai.clients.supabase_client import SupabaseClient
-from coachai.clients.postgres_client import PostgresClient
+from coachai.client.supabase_client import SupabaseClient
+from coachai.client.postgres_client import PostgresClient
 from coachai.core.config import Config
 
 router = APIRouter()

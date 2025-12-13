@@ -8,7 +8,7 @@ import io
 import base64
 from typing import Any, Dict, Optional, List
 
-from coachai.clients.mistral_client import MistralClient
+from coachai.client.mistral_client import MistralClient
 
 
 class ModelHandler:
