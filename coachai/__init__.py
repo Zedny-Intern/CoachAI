@@ -15,9 +15,7 @@ else:
     load_dotenv()
 
 from coachai.core.config import Config
-from coachai.controllers.coach_controller import CoachController
 
 __all__ = [
     'Config',
-    'CoachController',
 ]

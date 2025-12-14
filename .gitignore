@@ -32,7 +32,7 @@ htmlcov/
 venv/
 .venv/
 env/
-.coachAi_env/
+.coach_env/
 
 # IDEs
 .vscode/

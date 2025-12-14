@@ -1,135 +1,193 @@
 # CoachAI (Multimodal Learning Coach)
 
-CoachAI is a **Streamlit-based multimodal learning coach**. It helps learners:
+CoachAI is a **Streamlit-based multimodal learning coach** that combines:
 
-- Ask questions (text-only or with an uploaded image)
-- Retrieve relevant lesson material from a knowledge base (RAG)
-- Generate grounded explanations (citing retrieved document IDs when relevant)
-- Generate practice questions and evaluate answers
+- A lesson/knowledge base (your own content)
+- Retrieval (RAG) to ground answers in that knowledge
+- An LLM backend (default: **Mistral API**) to generate explanations and practice content
 
-The project follows a **layered architecture** and is implemented primarily under `coachai/` (core layers) and `ui/` (Streamlit UI layer). It integrates with:
+The UI supports **text questions** and **image-based questions** (vision/OCR via the remote model).
 
-- **Mistral API** for remote LLM + OCR / vision understanding (default)
-- **Supabase** for authentication, lesson storage, and file attachments
-- **Postgres + pgvector** for vector search
-- **Cohere embeddings** for embeddings
+## Functionality & features
 
-## What’s in this repo
+- **Ask (Q&A)**
+  - Ask questions with optional image upload.
+  - Answers are grounded using retrieved lessons.
+  - When applicable, responses cite retrieved document IDs.
+
+- **Knowledge base (Lessons)**
+  - Create, list, and delete lessons (topics).
+
+- **RAG / Semantic search**
+  - Searches relevant lessons using:
+    - **pgvector** (preferred) when Postgres is configured
+    - A fallback in-process similarity search when Postgres/pgvector is unavailable
+
+- **Practice mode**
+  - Generate practice questions from your saved lessons.
+  - Submit answers and receive model feedback.
+
+## How it works (runtime flow)
+
+- **Streamlit entrypoint**: `app.py`
+- **UI orchestration**: `coachai/ui/streamlit_utils.py` and `coachai/ui/learning_coach_agent.py`
+  - The UI creates a `LearningCoachAgent`, which holds a `CoachService`.
+- **Business logic**: `coachai/services/coach_service.py` (`CoachService`)
+  - Retrieves lessons via `KnowledgeRepository`.
+  - Calls the model backend via `ModelHandler` (default: remote Mistral API).
+- **Retrieval & persistence**: `coachai/repositories/knowledge_repository.py` (`KnowledgeRepository`)
+  - Loads lessons (from Supabase).
+
+## Design & architecture
+
+CoachAI follows a **layered architecture** with a clear dependency direction:
+
+`ui (Streamlit)` -> `controllers` -> `services` -> `repositories` -> `client`
+
+Key design choices:
+
+- **Facade + internal modules (Option B naming)**
+  - Public entrypoints stay stable (e.g. `CoachService`, `KnowledgeRepository`).
+  - Implementation is split into internal modules (no underscore-prefixed filenames).
+
+- **Side-effect-minimized package imports**
+  - The `coachai` package is kept lightweight to reduce circular import risk.
+
+### Repository structure (high-level)
 
 - `app.py`
   - Streamlit entrypoint.
-  - Handles sign-in/sign-up via Supabase.
-  - Lets you manage lessons (create/delete, visibility).
-  - Runs the RAG + generation flow via the `coachai/` + `ui/` modules.
+  - Imports UI code from `coachai/ui/*`.
 
-- `ui/`
-  - Streamlit/UI-layer code.
-  - `learning_coach_agent.py`: UI-facing orchestration used by `app.py`.
-  - `image_processor.py`: Streamlit-friendly image validation/resizing.
+- `coachai/ui/`
+  - Streamlit UI layer: tabs, sidebar, session state, UI orchestration.
 
-- `coachai/`
-  - Core layered architecture implementation.
-  - `clients/`: outbound integrations (Supabase, Postgres/pgvector, Cohere, Mistral).
-  - `repositories/`: data access (e.g. `KnowledgeRepository`).
-  - `services/`: business logic (e.g. `CoachService`, model handling).
-  - `controllers/`: transport adapters for services.
-  - `core/`: configuration and shared utilities.
+- `coachai/controllers/`
+  - Transport adapters (UI/API) that translate inputs into service calls.
 
-- `src/`
-  - Legacy code kept temporarily for reference during the refactor.
+- `coachai/services/`
+  - Business logic and orchestration (RAG + generation).
+  - `coach_service.py` is the service facade.
+  - `model_handler.py` contains model backend integration.
 
-- `api/`
-  - Optional FastAPI app (`api/main.py`) exposing knowledge-base endpoints.
-  - Includes “protected” endpoints (`api/protected_routes.py`) meant for trusted backends.
+- `coachai/repositories/`
+  - Data access and retrieval.
+  - `knowledge_repository.py` is the repository facade.
 
-## Architecture (high level)
+- `coachai/client/`
+  - External integrations (Supabase, Postgres, Cohere, Mistral).
 
-Dependency direction:
+- `coachai/api/`
+  - FastAPI application and schemas.
+  - Includes “protected” endpoints intended for trusted backends.
 
-`api/ui` -> `controllers` -> `services` -> `repositories` -> `clients`
+## Tech stack
 
-- **UI (Streamlit)**: `app.py`
-- **UI agent/orchestration**: `ui/learning_coach_agent.py` (`LearningCoachAgent`)
-- **Service layer**: `coachai/services/coach_service.py` (`CoachService`)
-- **Repository layer**: `coachai/repositories/knowledge_repository.py` (`KnowledgeRepository`)
-  - Loads lessons from Supabase (if configured)
-  - Searches via pgvector if Postgres is available; otherwise does client-side cosine similarity
-- **Model backend**: `coachai/services/model_handler.py`
-  - Default: remote Mistral API (requires `MISTRAL_API_KEY`)
+- **UI**: Streamlit
+- **Optional API**: FastAPI
+- **LLM / Vision**: Mistral API (remote)
+- **Auth + persistence + attachments**: Supabase
+- **Vector search**: Postgres + pgvector
+- **Embeddings**: Cohere
+- **Config**: `python-dotenv` + environment variables
 
-## Requirements
+Python dependencies are declared in `requirements.txt`.
 
-Python dependencies are listed in `requriments.txt` (note the filename).
+## Quick start
 
-Key packages used by the app:
+### 1) Create a virtual environment
 
-- `streamlit`
-- `supabase`
-- `python-dotenv` (imported as `dotenv`)
-- `psycopg2` / `psycopg2-binary` (optional, for Postgres)
-- `sentence_transformers` (embeddings fallback)
+```bash
+python -m venv .coach_env
+source .coach_env/bin/activate
+```
 
-If you want to use Cohere embeddings, you also need the `cohere` Python package installed.
+### 2) Install dependencies
 
-## Configuration
+```bash
+pip install -r requirements.txt
+```
 
-The code loads environment variables from a `.env` file located at the repository root (see `coachai/core/config.py` and `coachai/__init__.py`).
+### 3) Configure environment variables
 
-### Required (for default remote-model mode)
+Create a `.env` file at the repository root.
 
-- `MISTRAL_API_KEY`
+Minimal configuration (remote model):
 
-### Optional (enable Supabase persistence + auth)
+```bash
+MISTRAL_API_KEY=...
+USE_REMOTE_MODEL=true
+```
 
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY` (used by browser clients)
-- `SUPABASE_SERVICE_ROLE_KEY` (privileged operations; do not expose publicly)
-- `SUPABASE_STORAGE_BUCKET` (defaults to `attachments`)
+Optional (recommended) persistence + vector search:
 
-### Optional (enable pgvector search)
+```bash
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_DB_URL=...
+```
 
-- `SUPABASE_DB_URL` (Postgres DSN used by `psycopg2`)
-- `PGVECTOR_DIMENSION` (defaults to `384`)
+### 4) Run the Streamlit app
 
-### Optional (prefer Cohere for embeddings)
-
-- `COHERE_API_KEY`
-- `COHERE_MODEL` (defaults to `small` in this repo)
-
-### Optional (server-side RAG endpoints)
-
-- `USE_SERVER_SIDE_RAG` (`true` / `false`)
-
-## Running the Streamlit app
-
-1. Create and activate a virtual environment.
-2. Install dependencies.
-3. Set required environment variables (at least `MISTRAL_API_KEY`).
-4. Run:
+Run from the repository root:
 
 ```bash
 streamlit run app.py
 ```
 
-The UI provides:
+You should then see URLs like:
 
-- **Ask**: question + optional image upload.
-- **Practice**: generate a question for one of your saved topics and submit an answer.
-- **Manage**: create, list, and delete lessons (topics).
+- `Local URL: http://localhost:8501`
 
-## Running the optional API
-
-The FastAPI app lives in `api/main.py` and runs on port `8080`:
+## Configuration reference (.env)
 
 ```bash
-python api/main.py
+# --- Required (default remote-model mode) ---
+MISTRAL_API_KEY=...
+
+# --- Optional model settings ---
+USE_REMOTE_MODEL=true
+MISTRAL_API_URL=https://api.mistral.ai
+MODEL_NAME=mistral-medium-2508
+MISTRAL_OCR_MODEL=mistral-ocr-latest
+
+# --- RAG tuning ---
+TOP_K=3
+TEMPERATURE=0.7
+MAX_TOKENS=1024
+TOP_P=0.9
+REPETITION_PENALTY=1.05
+LENGTH_PENALTY=1.0
+
+# --- Supabase ---
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_DB_URL=
+SUPABASE_STORAGE_BUCKET=attachments
+
+# --- pgvector ---
+PGVECTOR_DIMENSION=384
+
+# --- Cohere embeddings ---
+COHERE_API_KEY=
+COHERE_MODEL=embed-multilingual-light-v3.0
+
+# --- Optional server-side RAG endpoints ---
+USE_SERVER_SIDE_RAG=false
 ```
 
-Endpoints:
+## Optional: run the FastAPI server
+
+The FastAPI app lives in `coachai/api/main.py`.
+
+```bash
+PYTHONPATH=. python coachai/api/main.py
+```
+
+Key endpoints:
 
 - `GET /health`
-- `GET /api/v1/entries/` (CRUD for `knowledge_entries` in the API’s SQLite DB)
-- `POST /api/v1/search/` (semantic search over API entries)
+- `POST /api/v1/search/`
 - `POST /api/v1/protected/*` (requires `x-service-key` header matching `SUPABASE_SERVICE_ROLE_KEY`)
-
-

@@ -7,7 +7,7 @@ embeddings to Postgres and uploading to Supabase Storage using the service role.
 from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File
 from typing import Optional
 
-from api.schemas import ProtectedLesson, EmbeddingIn, GeneratedQuestionIn, AnswerIn
+from coachai.api.schemas import ProtectedLesson, EmbeddingIn, GeneratedQuestionIn, AnswerIn
 
 from coachai.repositories.knowledge_repository import KnowledgeRepository
 from coachai.client.supabase_client import SupabaseClient
